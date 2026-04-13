@@ -20,7 +20,10 @@ class Task {
   }
 
   checkHover() {
-    if (this.done) return;
+    if (this.done) {
+      return;
+    }
+
     if (activeTask) return;
 
     let centerX = this.x + 20;

@@ -16,8 +16,15 @@ let progress = 0;
 let particles = [];
 let focusOrbs = [];
 let shake = 0;
-let lastSafeSpawn = 0;
+let safeSpace = null;
+let lastSafeSpawn = -15000; // so first one can spawn immediately
+let safeCooldown = 15000; // 15 seconds after one disappears
 let playerInSafeZone = false;
+
+let menuMusic;
+let taskCompleteSound;
+let taskFailSound;
+let safeZoneSound;
 let wordLists = {
   1: [
     // EASY (3–5 letters)
@@ -164,6 +171,14 @@ function setup() {
   initStars();
 }
 
+function isTooClose(x, y, others, minDist) {
+  for (let o of others) {
+    let d = dist(x, y, o.x, o.y);
+    if (d < minDist) return true;
+  }
+  return false;
+}
+
 function drawMenuText() {
   textAlign(CENTER, CENTER);
 
@@ -206,13 +221,72 @@ function drawMenuText() {
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
+
 function draw() {
   let sx = width / 1000;
   let sy = height / 650;
-  if (state === "menu") drawMenu();
-  if (state === "game") runGame();
-  if (state === "win") drawWin();
-  if (state === "lose") drawLose();
+  if (state === "menu") {
+    drawMenu();
+    if (!menuMusic.isPlaying()) {
+      menuMusic.loop();
+      menuMusic.setVolume(0.4);
+    }
+  }
+  if (state === "game") {
+    runGame();
+    if (menuMusic.isPlaying()) {
+      menuMusic.stop();
+    }
+  }
+  if (state === "win") {
+    drawWin();
+    if (menuMusic.isPlaying()) {
+      menuMusic.stop();
+    }
+  }
+  if (state === "lose") {
+    drawLose();
+    if (menuMusic.isPlaying()) {
+      menuMusic.stop();
+    }
+  }
+  if (state === "levelStart") {
+    drawLevelStartScreen();
+    if (menuMusic.isPlaying()) {
+      menuMusic.stop();
+    }
+  }
+  if (state === "game") {
+    if (menuMusic.isPlaying()) {
+      menuMusic.stop();
+    }
+    // RESET FLAG
+    playerInSafeZone = false;
+
+    // ONLY LEVEL 2+
+    if (level >= 2) {
+      // spawn ONLY if none exists AND cooldown passed
+      if (!safeSpace && millis() - lastSafeSpawn > safeCooldown) {
+        safeSpace = new SafeSpace(tasks);
+      }
+
+      // update if exists
+      if (safeSpace) {
+        safeSpace.update(player);
+        safeSpace.display();
+
+        if (safeSpace.playerInside) {
+          playerInSafeZone = true;
+        }
+
+        // remove when done + start cooldown
+        if (safeSpace.isDone()) {
+          safeSpace = null;
+          lastSafeSpawn = millis();
+        }
+      }
+    }
+  }
 }
 
 function runGame() {
@@ -251,6 +325,8 @@ function runGame() {
 
   if (timer <= 0 || focus <= 0) {
     state = "lose";
+    safeSpace = null;
+    lastSafeSpawn = -15000;
   }
 
   // win / next level
@@ -262,6 +338,7 @@ function runGame() {
     } else {
       initLevel();
     }
+    state = "levelStart";
   }
 
   // particles
@@ -318,13 +395,16 @@ function initLevel() {
   focus = 100;
 
   for (let i = 0; i < 3 + level; i++) {
-    tasks.push(
-      new Task(
-        random(150, width - 150),
-        random(150, height - 150),
-        random(["🧸", "📚", "✏️", "📧", "📁"]),
-      ),
-    );
+    let x, y;
+    let tries = 0;
+
+    do {
+      x = random(100, width - 100);
+      y = random(100, height - 100);
+      tries++;
+    } while (isTooClose(x, y, tasks, 120) && tries < 50);
+
+    tasks.push(new Task(x, y));
   }
 }
 
@@ -350,6 +430,11 @@ function mousePressed() {
 }
 
 function keyPressed() {
+  userStartAudio();
+  if (state === "menu" && !menuMusic.isPlaying()) {
+    menuMusic.loop();
+    menuMusic.setVolume(0.4);
+  }
   // typing system
   if (activeTask) {
     if (key.length === 1) {
@@ -358,11 +443,17 @@ function keyPressed() {
 
     // reset if wrong
     if (!currentWord.startsWith(typedText)) {
+      if (!taskFailSound.isPlaying()) {
+        taskFailSound.play();
+      }
       typedText = "";
     }
 
     // completed word
     if (typedText === currentWord) {
+      if (!taskCompleteSound.isPlaying()) {
+        taskCompleteSound.play();
+      }
       activeTask.done = true;
       spawnParticles(activeTask.x + 20, activeTask.y + 20);
 
@@ -377,4 +468,36 @@ function keyPressed() {
   if (keyCode === 32 && state === "menu") {
     state = "game";
   }
+  if (keyCode === 32 && state === "levelStart") {
+    state = "game";
+  }
+}
+
+function drawLevelStartScreen() {
+  safeSpace = null;
+  background(5);
+
+  drawStars(); // background particles
+  drawBorder(); // glowing frame
+  textAlign(CENTER, CENTER);
+  fill(0, 255, 200, 30);
+  textSize(40);
+  text("Level " + level, width / 2, height / 2 - 40);
+  fill(0, 255, 200, 30);
+  textSize(24);
+  text("Press SPACE to start", width / 2, height / 2 + 20);
+}
+
+function preload() {
+  menuMusic = loadSound("Velvet Romance.mp3");
+
+  taskCompleteSound = loadSound(
+    "ES_User Interface, Misc, Completions, Xylophone - Epidemic Sound - 0000-0383.wav",
+  );
+  taskFailSound = loadSound(
+    "ES_User Interface, Beep, Button Interaction, Deny, Error, Medium, Futuristic, Scifi, Variations 01 - Epidemic Sound - 0000-0385.wav",
+  );
+  safeZoneSound = loadSound(
+    "Games, Video, Retro, 8 Bit, Level Complete Tone.mp3",
+  );
 }
