@@ -337,8 +337,8 @@ function runGame() {
       state = "win";
     } else {
       initLevel();
+      state = "levelStart";
     }
-    state = "levelStart";
   }
 
   // particles
